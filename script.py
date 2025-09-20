@@ -26,6 +26,46 @@ def parse_week(start_date: date):
     with open("tmp.xlsx", "wb") as f:
         f.write(r.content)
 
+    # Читаем Excel, пропуская первые 3 строки
+    df = pd.read_excel("tmp.xlsx", header=None, skiprows=3)
+
+    events = []
+
+    for _, row in df.iterrows():
+        try:
+            dt_str = str(row[0]).strip()        # столбец А - дата
+            time_str = str(row[1]).strip()      # столбец Б - время
+            subj = str(row[2]).strip()          # столбец Ц - название
+            room = str(row[3]).strip()          # столбец Д - места проведения
+
+            if not subj or subj.lower() == "nan":
+                continue
+
+            dt = pd.to_datetime(dt_str, dayfirst=True)
+            start_time = datetime.strptime(time_str.split("-")[0].strip(), "%H:%M").time()
+            end_time = datetime.strptime(time_str.split("-")[1].strip(), "%H:%M").time()
+
+            start_dt = datetime.combine(dt.date(), start_time)
+            end_dt = datetime.combine(dt.date(), end_time)
+
+            ev = {
+                "uid": str(uuid4()),
+                "summary": subj,
+                "location": room,
+                "dtstart": start_dt,
+                "dtend": end_dt,
+            }
+            events.append(ev)
+            print("[event]", subj, start_dt, "-", end_dt)
+        except Exception as e:
+            print("[error row]", e)
+
+    return events
+
+    # Сохраняем временный Excel
+    with open("tmp.xlsx", "wb") as f:
+        f.write(r.content)
+
     # Читаем Excel (пропускаем шапку)
     df = pd.read_excel("tmp.xlsx", skiprows=3)
     events = []
