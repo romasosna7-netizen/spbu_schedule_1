@@ -2,12 +2,14 @@ name: Update schedule
 
 on:
   schedule:
-    - cron: "0 6 * * *"   # каждый день в 6 утра по UTC
-  workflow_dispatch:       # ручной запуск
+    - cron: "0 6 * * *"   # каждый день в 6 утра UTC
+  workflow_dispatch:
 
 jobs:
   build:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write    # даём права на push
     steps:
       - uses: actions/checkout@v4
         with:
@@ -29,8 +31,12 @@ jobs:
         run: |
           git config --local user.email "action@github.com"
           git config --local user.name "GitHub Action"
-          git add schedule.ics || true
-          git commit -m "update schedule.ics" || echo "No changes to commit"
-          git push
+          if [ -f schedule.ics ]; then
+            git add schedule.ics
+            git commit -m "update schedule.ics" || echo "No changes to commit"
+            git push
+          else
+            echo "No schedule.ics file generated"
+          fi
           git commit -m "Update schedule" || echo "No changes"
           git push || echo "Push failed"
