@@ -16,8 +16,6 @@ def get_this_monday(d: date):
 def parse_week(start_date: date):
     url = f"{SITE_ROOT}/StudentGroupEvents/ExcelWeek?studentGroupId={GROUP_ID}&weekMonday={start_date:%Y-%m-%d}"
     print("[xlsx url]", url)
-    
-    # Скачиваем Excel
     r = requests.get(url)
     if r.status_code != 200:
         print("[warn] нет файла по адресу", url)
@@ -26,30 +24,28 @@ def parse_week(start_date: date):
     with open("tmp.xlsx", "wb") as f:
         f.write(r.content)
 
-    # Читаем Excel, пропуская первые 4 строки, все как строки
+    # Читаем Excel как строки, пропускаем 4 строки
     df = pd.read_excel("tmp.xlsx", header=None, skiprows=4, dtype=str)
-    df = df.fillna('')  # заменяем NaN на пустые строки
+    df = df.fillna('')
 
     events = []
 
     for _, row in df.iterrows():
-        dt_raw = row[0].strip()       # столбец А - дата
-        time_raw = row[1].strip()     # столбец Б - время
-        subj = row[2].strip()         # столбец Ц - название
-        room = row[3].strip()         # столбец Д - аудитория
+        dt_raw = row[0].strip()
+        time_raw = row[1].strip()
+        subj = row[2].strip()
+        room = row[3].strip()
 
-        if not subj:
+        # Игнорируем строки-заголовки или пустые
+        if not subj or 'время' in time_raw.lower() or 'дата' in dt_raw.lower():
             continue
 
-        # Парсим дату
-        try:
-            dt = pd.to_datetime(dt_raw, dayfirst=True, errors='coerce')
-            if pd.isna(dt):
-                continue
-        except:
+        # Конвертация даты
+        dt = pd.to_datetime(dt_raw, dayfirst=True, errors='coerce')
+        if pd.isna(dt):
             continue
 
-        # Парсим время диапазона
+        # Разбор времени
         if "-" not in time_raw:
             continue
         start_str, end_str = [t.strip() for t in time_raw.split("-")]
@@ -62,7 +58,6 @@ def parse_week(start_date: date):
         start_dt = datetime.combine(dt.date(), start_time)
         end_dt = datetime.combine(dt.date(), end_time)
 
-        # Добавляем событие
         events.append({
             "uid": str(uuid4()),
             "summary": subj,
