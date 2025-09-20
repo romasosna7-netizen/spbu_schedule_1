@@ -103,6 +103,7 @@ def main():
     all_events = []
     for i in range(WEEKS_AHEAD):
         week_start = monday + timedelta(days=i*7)
+        print("=== Обработка недели:", week_start, "===")
         all_events.extend(parse_week(week_start))
 
     print("[total events]", len(all_events))
@@ -111,5 +112,5 @@ def main():
     else:
         print("[warn] событий нет, файл не создан")
 
-if __name__ == "__main__":
+if name == "__main__":
     main()
