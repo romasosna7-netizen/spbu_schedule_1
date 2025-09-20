@@ -2,6 +2,8 @@ import requests
 import pandas as pd
 from datetime import datetime, timedelta, date
 from uuid import uuid4
+from openpyxl import load_workbook
+
 
 # === Настройки ===
 GROUP_ID = "427997"
@@ -13,9 +15,6 @@ OUT_ICS = "schedule.ics"
 def get_this_monday(d: date):
     return d - timedelta(days=d.weekday())
 
-from openpyxl import load_workbook
-
-from openpyxl import load_workbook
 
 def parse_week(start_date: date):
     url = f"{SITE_ROOT}/StudentGroupEvents/ExcelWeek?studentGroupId={GROUP_ID}&weekMonday={start_date:%Y-%m-%d}"
@@ -28,26 +27,45 @@ def parse_week(start_date: date):
     with open("tmp.xlsx", "wb") as f:
         f.write(r.content)
 
-    wb = load_workbook("tmp.xlsx", data_only=True)
-    ws = wb.active
+    # Читаем Excel через Pandas как строки
+    df = pd.read_excel("tmp.xlsx", header=None, skiprows=4, dtype=str)
+    df = df.fillna('')  # заменяем NaN на пустые строки
 
     events = []
 
-    for row in ws.iter_rows(min_row=5):  # пропускаем первые 4 строки
-        dt_raw = str(row[0].value).strip() if row[0].value else ''
-        time_raw = str(row[1].value).strip() if row[1].value else ''
-        subj = str(row[2].value).strip() if row[2].value else ''
-        room = str(row[3].value).strip() if row[3].value else ''
+    for _, row in df.iterrows():
+        dt_raw = row[0].strip()
+        time_raw = row[1].strip()
+        subj = row[2].strip()
+        room = row[3].strip()
+        # преподаватель в календарь не добавляем
 
-        if not dt_raw or not subj or not time_raw:
+        # пропускаем пустые строки
+        if not dt_raw or not time_raw or not subj:
             continue
 
-        # Парсим дату
-        dt = pd.to_datetime(dt_raw, dayfirst=True, errors='coerce')
-        if pd.isna(dt):
+        # Парсим дату, локализуем русский месяц
+        try:
+            # заменяем день недели и приводим месяц к английскому для pd.to_datetime
+            import re
+            dt_text = re.sub(r'^\w+\s+', '', dt_raw)  # убираем день недели
+            # для корректного распознавания русских месяцев можно через mapping
+            month_map = {
+                "января":"January","февраля":"February","марта":"March",
+                "апреля":"April","мая":"May","июня":"June","июля":"July",
+                "августа":"August","сентября":"September","октября":"October",
+                "ноября":"November","декабря":"December"
+            }
+            for ru, en in month_map.items():
+                dt_text = dt_text.replace(ru, en)
+            dt = pd.to_datetime(dt_text, dayfirst=True, errors='coerce')
+            if pd.isna(dt):
+                continue
+        except:
             continue
 
-        # Парсим время
+        # Парсим диапазон времени
+        time_raw = time_raw.replace("–", "-")  # заменяем длинное тире
         if "-" not in time_raw:
             continue
         start_str, end_str = [t.strip() for t in time_raw.split("-")]
