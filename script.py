@@ -99,5 +99,5 @@ def main():
     else:
         print("[warn] событий нет, файл не создан")
 
-if name == "__main__":
+if __name__ == "__main__":
     main()
