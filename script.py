@@ -37,7 +37,7 @@ def clean_date(dt_raw: str) -> str:
 
 # === Парсер недели ===
 def parse_week(xlsx_url, start_date):
-    print(f"=== Обработка недели: {start_date.date()} ===")
+    print(f"=== Обработка недели: {start_date:%Y-%m-%d} ===")
     print(f"[xlsx url] {xlsx_url}")
 
     # скачиваем Excel
