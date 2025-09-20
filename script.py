@@ -2,22 +2,40 @@ import requests
 import pandas as pd
 from datetime import datetime, timedelta, date
 from uuid import uuid4
-from openpyxl import load_workbook
-
 
 # === Настройки ===
 GROUP_ID = "427997"
 WEEKS_AHEAD = 4
-SITE_ROOT = "https://timetable.spbu.ru"
 OUT_ICS = "schedule.ics"
+BASE_URL = "https://timetable.spbu.ru/StudentGroupEvents/ExcelWeek"
 
-# === Функции ===
+# === Вспомогательные функции ===
 def get_this_monday(d: date):
     return d - timedelta(days=d.weekday())
 
+def clean_date(dt_raw: str) -> str:
+    import re
+    dt_text = dt_raw.replace("\n", " ").strip()
 
+    weekday_words = [
+        "понедельник", "вторник", "среда", "четверг", "пятница", "суббота", "воскресенье",
+        "monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"
+    ]
+    pattern = r"^(?:" + "|".join(weekday_words) + r")\s+"
+    dt_text = re.sub(pattern, "", dt_text, flags=re.IGNORECASE)
 
+    month_map = {
+        "января": "January", "февраля": "February", "марта": "March",
+        "апреля": "April", "мая": "May", "июня": "June", "июля": "July",
+        "августа": "August", "сентября": "September", "октября": "October",
+        "ноября": "November", "декабря": "December"
+    }
+    for ru, en in month_map.items():
+        dt_text = dt_text.replace(ru, en)
 
+    return dt_text
+
+# === Парсер недели ===
 def parse_week(xlsx_url, start_date):
     print(f"=== Обработка недели: {start_date.date()} ===")
     print(f"[xlsx url] {xlsx_url}")
@@ -41,18 +59,18 @@ def parse_week(xlsx_url, start_date):
         room = row[3].strip()
         teacher = row[4].strip()
 
-        if not subj:
+        if not subj or not dt_raw or not time_raw:
             continue
 
-        # парсим дату
-        dt_text = clean_date(dt_raw)       # убираем "понедельник" → "29 September"
-        dt_text = f"{dt_text} {start_date.year}"  # добавляем год
+        # --- Парсим дату ---
+        dt_text = clean_date(dt_raw)
+        dt_text = f"{dt_text} {start_date.year}"
         dt = pd.to_datetime(dt_text, dayfirst=True, errors='coerce')
         if pd.isna(dt):
             print("[skip date]", dt_raw)
             continue
 
-        # парсим время
+        # --- Парсим время ---
         if "-" not in time_raw:
             continue
         try:
@@ -65,7 +83,7 @@ def parse_week(xlsx_url, start_date):
         start_dt = datetime.combine(dt.date(), start_time)
         end_dt = datetime.combine(dt.date(), end_time)
 
-        # собираем описание
+        # --- Описание ---
         desc_parts = []
         if room:
             desc_parts.append(f"Место: {room}")
@@ -73,82 +91,20 @@ def parse_week(xlsx_url, start_date):
             desc_parts.append(f"Преподаватель: {teacher}")
         desc = "\n".join(desc_parts)
 
-        events.append({
+        ev = {
+            "uid": str(uuid4()),
             "summary": subj,
             "location": room,
             "description": desc,
             "dtstart": start_dt,
             "dtend": end_dt,
-        })
-
-    return events
-    # очистка даты от лишнего
-    def clean_date(dt_raw: str) -> str:
-        import re
-        dt_text = dt_raw.replace("\n", " ").strip()
-
-        weekday_words = [
-            "понедельник", "вторник", "среда", "четверг", "пятница", "суббота", "воскресенье",
-            "monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"
-        ]
-        pattern = r"^(?:" + "|".join(weekday_words) + r")\s+"
-        dt_text = re.sub(pattern, "", dt_text, flags=re.IGNORECASE)
-
-        month_map = {
-            "января": "January", "февраля": "February", "марта": "March",
-            "апреля": "April", "мая": "May", "июня": "June", "июля": "July",
-            "августа": "August", "сентября": "September", "октября": "October",
-            "ноября": "November", "декабря": "December"
-        }
-        for ru, en in month_map.items():
-            dt_text = dt_text.replace(ru, en)
-
-        return dt_text
-
-    for _, row in df.iterrows():
-        dt_raw = row[0].strip()
-        time_raw = row[1].strip()
-        subj = row[2].strip()
-        room = row[3].strip()
-        teacher = row[4].strip()
-
-        if not subj or not dt_raw or not time_raw:
-            continue
-
-        # парсим дату
-        dt_text = clean_date(dt_raw)
-        dt = pd.to_datetime(dt_text, dayfirst=True, errors='coerce')
-        if pd.isna(dt):
-            print("[skip date]", dt_raw)
-            continue
-
-        # парсим время
-        if "-" not in time_raw:
-            continue
-        start_str, end_str = [t.strip() for t in time_raw.split("-")]
-        try:
-            start_time = datetime.strptime(start_str, "%H:%M").time()
-            end_time = datetime.strptime(end_str, "%H:%M").time()
-        except:
-            continue
-
-        start_dt = datetime.combine(dt.date(), start_time)
-        end_dt = datetime.combine(dt.date(), end_time)
-
-        ev = {
-            "uid": str(uuid4()),
-            "summary": subj,
-            "location": room,
-            "description": teacher,
-            "dtstart": start_dt,
-            "dtend": end_dt,
         }
         events.append(ev)
-        print("[event]", subj, start_dt, "-", end_dt, "|", teacher)
+        print("[event]", subj, start_dt, "-", end_dt)
 
     return events
 
-
+# === Создание .ics ===
 def make_ics(events, filename="schedule.ics"):
     with open(filename, "w", encoding="utf-8") as f:
         f.write("BEGIN:VCALENDAR\n")
@@ -170,15 +126,16 @@ def make_ics(events, filename="schedule.ics"):
         f.write("END:VCALENDAR\n")
     print(f"[ok] файл сохранён: {filename}")
 
+# === Главная функция ===
 def main():
     today = date.today()
     monday = get_this_monday(today)
-
     all_events = []
+
     for i in range(WEEKS_AHEAD):
         week_start = monday + timedelta(days=i*7)
-        print("=== Обработка недели:", week_start, "===")
-        all_events.extend(parse_week(week_start))
+        xlsx_url = f"{BASE_URL}?studentGroupId={GROUP_ID}&weekMonday={week_start}"
+        all_events.extend(parse_week(xlsx_url, week_start))
 
     print("[total events]", len(all_events))
     if all_events:
