@@ -126,5 +126,5 @@ def main():
         f.write(ics_text)
     print("Файл schedule.ics создан")
 
-if name == "__main__":
+if __name__ == "__main__":
     main()
