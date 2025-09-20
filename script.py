@@ -16,6 +16,8 @@ def get_this_monday(d: date):
 def parse_week(start_date: date):
     url = f"{SITE_ROOT}/StudentGroupEvents/ExcelWeek?studentGroupId={GROUP_ID}&weekMonday={start_date:%Y-%m-%d}"
     print("[xlsx url]", url)
+    
+    # Скачиваем Excel
     r = requests.get(url)
     if r.status_code != 200:
         print("[warn] нет файла по адресу", url)
@@ -24,88 +26,51 @@ def parse_week(start_date: date):
     with open("tmp.xlsx", "wb") as f:
         f.write(r.content)
 
-    # Пропускаем 4 строки, заголовок нет
-    df = pd.read_excel("tmp.xlsx", header=None, skiprows=4)
+    # Читаем Excel, пропуская первые 4 строки, все как строки
+    df = pd.read_excel("tmp.xlsx", header=None, skiprows=4, dtype=str)
+    df = df.fillna('')  # заменяем NaN на пустые строки
+
     events = []
 
     for _, row in df.iterrows():
+        dt_raw = row[0].strip()       # столбец А - дата
+        time_raw = row[1].strip()     # столбец Б - время
+        subj = row[2].strip()         # столбец Ц - название
+        room = row[3].strip()         # столбец Д - аудитория
+
+        if not subj:
+            continue
+
+        # Парсим дату
         try:
-            dt_raw = str(row[0]).strip()       # столбец А - дата
-            time_raw = str(row[1]).strip()     # столбец Б - время
-            subj = str(row[2]).strip()         # столбец Ц - название
-            room = str(row[3]).strip()         # столбец Д - аудитория
-
-            if not subj or subj.lower() == "nan":
-                continue
-
-            # Конвертация даты (игнорируем ошибки)
-            dt = pd.to_datetime(dt_raw, dayfirst=True, errors="coerce")
+            dt = pd.to_datetime(dt_raw, dayfirst=True, errors='coerce')
             if pd.isna(dt):
                 continue
+        except:
+            continue
 
-            # Разбор времени диапазона
-            if "-" not in time_raw:
-                continue
-            start_str, end_str = [t.strip() for t in time_raw.split("-")]
-            try:
-                start_time = datetime.strptime(start_str, "%H:%M").time()
-                end_time = datetime.strptime(end_str, "%H:%M").time()
-            except:
-                continue
-
-            start_dt = datetime.combine(dt.date(), start_time)
-            end_dt = datetime.combine(dt.date(), end_time)
-
-            events.append({
-                "uid": str(uuid4()),
-                "summary": subj,
-                "location": room,
-                "dtstart": start_dt,
-                "dtend": end_dt,
-            })
-            print("[event]", subj, start_dt, "-", end_dt)
-
-        except Exception as e:
-            print("[error row]", e)
-
-    return events
-
-    # Сохраняем временный Excel
-    with open("tmp.xlsx", "wb") as f:
-        f.write(r.content)
-
-    # Читаем Excel (пропускаем шапку)
-    df = pd.read_excel("tmp.xlsx", skiprows=3)
-    events = []
-
-    for _, row in df.iterrows():
+        # Парсим время диапазона
+        if "-" not in time_raw:
+            continue
+        start_str, end_str = [t.strip() for t in time_raw.split("-")]
         try:
-            subj = str(row["Дисциплина"]).strip()
-            dt_str = str(row["Дата"]).strip()
-            time_str = str(row["Время"]).strip()
-            room = str(row.get("Аудитория", "")).strip()
+            start_time = datetime.strptime(start_str, "%H:%M").time()
+            end_time = datetime.strptime(end_str, "%H:%M").time()
+        except:
+            continue
 
-            if not subj or subj == "nan":
-                continue
+        start_dt = datetime.combine(dt.date(), start_time)
+        end_dt = datetime.combine(dt.date(), end_time)
 
-            dt = pd.to_datetime(dt_str, dayfirst=True)
-            start_time = datetime.strptime(time_str.split("-")[0].strip(), "%H:%M").time()
-            end_time = datetime.strptime(time_str.split("-")[1].strip(), "%H:%M").time()
-
-            start_dt = datetime.combine(dt.date(), start_time)
-            end_dt = datetime.combine(dt.date(), end_time)
-
-            ev = {
-                "uid": str(uuid4()),
-                "summary": subj,
-                "location": room,
-                "dtstart": start_dt,
-                "dtend": end_dt,
-            }
-            events.append(ev)
-            print("[event]", subj, start_dt, "-", end_dt)
-        except Exception as e:
-            print("[error row]", e)
+        # Добавляем событие
+        events.append({
+            "uid": str(uuid4()),
+            "summary": subj,
+            "location": room,
+            "dtstart": start_dt,
+            "dtend": end_dt,
+        })
+        print("[event]", subj, start_dt, "-", end_dt)
 
     return events
 
