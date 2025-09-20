@@ -21,95 +21,105 @@ def get_this_monday(d: date):
 def parse_week(start_date: date):
     url = f"{SITE_ROOT}/StudentGroupEvents/ExcelWeek?studentGroupId={GROUP_ID}&weekMonday={start_date:%Y-%m-%d}"
     print("[xlsx url]", url)
-    r = requests.get(url)
-    if r.status_code != 200:
-        print("[warn] нет файла по адресу", url)
-        return []
 
+    r = requests.get(url)
+    r.raise_for_status()
     with open("tmp.xlsx", "wb") as f:
         f.write(r.content)
 
-    wb = load_workbook("tmp.xlsx")
-    ws = wb.active
+    # читаем Excel без заголовков, начиная с 5-й строки
+    df = pd.read_excel("tmp.xlsx", header=None, skiprows=4, dtype=str)
+    df = df.fillna('')
 
     events = []
 
-    # идём с 5-й строки (пропускаем заголовки)
-    for row in ws.iter_rows(min_row=5, values_only=True):
-        dt_raw = str(row[0]).strip() if row[0] else ""
-        time_raw = str(row[1]).strip() if row[1] else ""
-        subj = str(row[2]).strip() if row[2] else ""
-        room = str(row[3]).strip() if row[3] else ""
-        # преподавателя (row[4]) можно игнорировать
-
-        if not dt_raw or not time_raw or not subj:
-            continue
-
-        # === Парсим дату ===
+    # очистка даты от лишнего
+    def clean_date(dt_raw: str) -> str:
         import re
-        dt_text = re.sub(r'^\w+\s+', '', dt_raw.lower())  # убираем день недели
+        dt_text = dt_raw.replace("\n", " ").strip()
+
+        weekday_words = [
+            "понедельник", "вторник", "среда", "четверг", "пятница", "суббота", "воскресенье",
+            "monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"
+        ]
+        pattern = r"^(?:" + "|".join(weekday_words) + r")\s+"
+        dt_text = re.sub(pattern, "", dt_text, flags=re.IGNORECASE)
+
         month_map = {
-            "января":"January","февраля":"February","марта":"March",
-            "апреля":"April","мая":"May","июня":"June","июля":"July",
-            "августа":"August","сентября":"September","октября":"October",
-            "ноября":"November","декабря":"December"
+            "января": "January", "февраля": "February", "марта": "March",
+            "апреля": "April", "мая": "May", "июня": "June", "июля": "July",
+            "августа": "August", "сентября": "September", "октября": "October",
+            "ноября": "November", "декабря": "December"
         }
         for ru, en in month_map.items():
             dt_text = dt_text.replace(ru, en)
-        dt = pd.to_datetime(dt_text, dayfirst=True, errors="coerce")
+
+        return dt_text
+
+    for _, row in df.iterrows():
+        dt_raw = row[0].strip()
+        time_raw = row[1].strip()
+        subj = row[2].strip()
+        room = row[3].strip()
+        teacher = row[4].strip()
+
+        if not subj or not dt_raw or not time_raw:
+            continue
+
+        # парсим дату
+        dt_text = clean_date(dt_raw)
+        dt = pd.to_datetime(dt_text, dayfirst=True, errors='coerce')
         if pd.isna(dt):
             print("[skip date]", dt_raw)
             continue
 
-        # === Парсим время ===
-        time_raw = time_raw.replace("–", "-")
+        # парсим время
         if "-" not in time_raw:
-            print("[skip time]", time_raw)
             continue
+        start_str, end_str = [t.strip() for t in time_raw.split("-")]
         try:
-            start_str, end_str = [t.strip() for t in time_raw.split("-")]
             start_time = datetime.strptime(start_str, "%H:%M").time()
             end_time = datetime.strptime(end_str, "%H:%M").time()
-        except Exception as e:
-            print("[bad time]", time_raw, e)
+        except:
             continue
 
         start_dt = datetime.combine(dt.date(), start_time)
         end_dt = datetime.combine(dt.date(), end_time)
 
-        events.append({
+        ev = {
             "uid": str(uuid4()),
             "summary": subj,
             "location": room,
+            "description": teacher,
             "dtstart": start_dt,
             "dtend": end_dt,
-        })
-        print("[event]", subj, start_dt, "-", end_dt, room)
+        }
+        events.append(ev)
+        print("[event]", subj, start_dt, "-", end_dt, "|", teacher)
 
     return events
 
 
-def make_ics(events):
-    lines = [
-        "BEGIN:VCALENDAR",
-        "VERSION:2.0",
-        "CALSCALE:GREGORIAN",
-    ]
-    for ev in events:
-        lines += [
-            "BEGIN:VEVENT",
-            f"UID:{ev['uid']}",
-            f"SUMMARY:{ev['summary']}",
-            f"DTSTART:{ev['dtstart'].strftime('%Y%m%dT%H%M%S')}",
-            f"DTEND:{ev['dtend'].strftime('%Y%m%dT%H%M%S')}",
-            f"LOCATION:{ev['location']}",
-            "END:VEVENT",
-        ]
-    lines.append("END:VCALENDAR")
+def make_ics(events, filename="schedule.ics"):
+    with open(filename, "w", encoding="utf-8") as f:
+        f.write("BEGIN:VCALENDAR\n")
+        f.write("VERSION:2.0\n")
+        f.write("PRODID:-//Schedule Parser//EN\n")
 
-    with open(OUT_ICS, "w", encoding="utf-8") as f:
-        f.write("\n".join(lines))
-    print("[ok] файл сохранён:", OUT_ICS)
+        for ev in events:
+            f.write("BEGIN:VEVENT\n")
+            f.write(f"UID:{ev['uid']}\n")
+            f.write(f"SUMMARY:{ev['summary']}\n")
+            if ev["location"]:
+                f.write(f"LOCATION:{ev['location']}\n")
+            if ev["description"]:
+                f.write(f"DESCRIPTION:{ev['description']}\n")
+            f.write(f"DTSTART:{ev['dtstart'].strftime('%Y%m%dT%H%M%S')}\n")
+            f.write(f"DTEND:{ev['dtend'].strftime('%Y%m%dT%H%M%S')}\n")
+            f.write("END:VEVENT\n")
+
+        f.write("END:VCALENDAR\n")
+    print(f"[ok] файл сохранён: {filename}")
 
 def main():
     today = date.today()
