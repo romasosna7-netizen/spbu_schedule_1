@@ -1,17 +1,11 @@
-# script.py
-# Автоматическая выгрузка расписания СПбГУ в .ics
-# Работает по неделям, собирает несколько вперёд и делает единый календарь
-
 import requests
-from bs4 import BeautifulSoup
 import pandas as pd
 from datetime import datetime, timedelta, date
-from urllib.parse import urljoin
 from uuid import uuid4
 
 # === Настройки ===
-GROUP_ID = "427997"            # ID твоей группы
-WEEKS_AHEAD = 4                # сколько недель вперёд собирать
+GROUP_ID = "427997"
+WEEKS_AHEAD = 4
 SITE_ROOT = "https://timetable.spbu.ru"
 OUT_ICS = "schedule.ics"
 
@@ -20,26 +14,19 @@ def get_this_monday(d: date):
     return d - timedelta(days=d.weekday())
 
 def parse_week(start_date: date):
-    url = f"{SITE_ROOT}/EARTH/StudentGroupEvents/Primary/{GROUP_ID}/{start_date:%Y-%m-%d}"
-    print("[week url]", url)
+    # Прямая ссылка на Excel
+    url = f"{SITE_ROOT}/StudentGroupEvents/ExcelWeek?studentGroupId={GROUP_ID}&weekMonday={start_date:%Y-%m-%d}"
+    print("[xlsx url]", url)
     r = requests.get(url)
-    r.raise_for_status()
-
-    soup = BeautifulSoup(r.text, "html.parser")
-    links = [a["href"] for a in soup.find_all("a", href=True) if a["href"].endswith(".xlsx")]
-    if not links:
-        print("[warn] нет .xlsx ссылок на неделе", start_date)
+    if r.status_code != 200:
+        print("[warn] нет файла по адресу", url)
         return []
 
-    xlsx_url = urljoin(SITE_ROOT, links[0])
-    print("[xlsx]", xlsx_url)
-
-    r = requests.get(xlsx_url)
-    r.raise_for_status()
-
+    # Сохраняем временный Excel
     with open("tmp.xlsx", "wb") as f:
         f.write(r.content)
 
+    # Читаем Excel (пропускаем шапку)
     df = pd.read_excel("tmp.xlsx", skiprows=3)
     events = []
 
@@ -112,5 +99,5 @@ def main():
     else:
         print("[warn] событий нет, файл не создан")
 
-if __name__ == "__main__":
+if name == "__main__":
     main()
