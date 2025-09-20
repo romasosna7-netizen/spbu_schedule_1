@@ -6,17 +6,15 @@ from uuid import uuid4
 # === Настройки ===
 GROUP_ID = "427997"
 WEEKS_AHEAD = 4
+SITE_ROOT = "https://timetable.spbu.ru"
 OUT_ICS = "schedule.ics"
-BASE_URL = "https://timetable.spbu.ru/StudentGroupEvents/ExcelWeek"
 
-# === Вспомогательные функции ===
 def get_this_monday(d: date):
     return d - timedelta(days=d.weekday())
 
 def clean_date(dt_raw: str) -> str:
     import re
     dt_text = dt_raw.replace("\n", " ").strip()
-
     weekday_words = [
         "понедельник", "вторник", "среда", "четверг", "пятница", "суббота", "воскресенье",
         "monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"
@@ -35,18 +33,15 @@ def clean_date(dt_raw: str) -> str:
 
     return dt_text
 
-# === Парсер недели ===
 def parse_week(xlsx_url, start_date):
     print(f"=== Обработка недели: {start_date:%Y-%m-%d} ===")
     print(f"[xlsx url] {xlsx_url}")
 
-    # скачиваем Excel
     r = requests.get(xlsx_url)
     r.raise_for_status()
     with open("tmp.xlsx", "wb") as f:
         f.write(r.content)
 
-    # читаем данные, пропускаем 4 строки заголовка
     df = pd.read_excel("tmp.xlsx", header=None, skiprows=4, dtype=str)
     df = df.fillna('')
 
@@ -57,20 +52,19 @@ def parse_week(xlsx_url, start_date):
         time_raw = row[1].strip()
         subj = row[2].strip()
         room = row[3].strip()
-        teacher = row[4].strip()
+        teacher = row[4].strip() if len(row) > 4 else ""
 
         if not subj or not dt_raw or not time_raw:
             continue
 
-        # --- Парсим дату ---
-        dt_text = clean_date(dt_raw)
-        dt_text = f"{dt_text} {start_date.year}"
+        # Парсим дату
+        dt_text = clean_date(dt_raw) + f" {start_date.year}"
         dt = pd.to_datetime(dt_text, dayfirst=True, errors='coerce')
         if pd.isna(dt):
             print("[skip date]", dt_raw)
             continue
 
-        # --- Парсим время ---
+        # Парсим время
         if "-" not in time_raw:
             continue
         try:
@@ -83,7 +77,6 @@ def parse_week(xlsx_url, start_date):
         start_dt = datetime.combine(dt.date(), start_time)
         end_dt = datetime.combine(dt.date(), end_time)
 
-        # --- Описание ---
         desc_parts = []
         if room:
             desc_parts.append(f"Место: {room}")
@@ -91,21 +84,19 @@ def parse_week(xlsx_url, start_date):
             desc_parts.append(f"Преподаватель: {teacher}")
         desc = "\n".join(desc_parts)
 
-        ev = {
+        events.append({
             "uid": str(uuid4()),
             "summary": subj,
             "location": room,
             "description": desc,
             "dtstart": start_dt,
             "dtend": end_dt,
-        }
-        events.append(ev)
-        print("[event]", subj, start_dt, "-", end_dt)
+        })
+        print("[event]", subj, start_dt, "-", end_dt, "|", teacher)
 
     return events
 
-# === Создание .ics ===
-def make_ics(events, filename="schedule.ics"):
+def make_ics(events, filename=OUT_ICS):
     with open(filename, "w", encoding="utf-8") as f:
         f.write("BEGIN:VCALENDAR\n")
         f.write("VERSION:2.0\n")
@@ -126,7 +117,6 @@ def make_ics(events, filename="schedule.ics"):
         f.write("END:VCALENDAR\n")
     print(f"[ok] файл сохранён: {filename}")
 
-# === Главная функция ===
 def main():
     today = date.today()
     monday = get_this_monday(today)
@@ -134,7 +124,7 @@ def main():
 
     for i in range(WEEKS_AHEAD):
         week_start = monday + timedelta(days=i*7)
-        xlsx_url = f"{BASE_URL}?studentGroupId={GROUP_ID}&weekMonday={week_start}"
+        xlsx_url = f"{SITE_ROOT}/StudentGroupEvents/ExcelWeek?studentGroupId={GROUP_ID}&weekMonday={week_start:%Y-%m-%d}"
         all_events.extend(parse_week(xlsx_url, week_start))
 
     print("[total events]", len(all_events))
@@ -143,5 +133,5 @@ def main():
     else:
         print("[warn] событий нет, файл не создан")
 
-if __name__ == "__main__":
+if name == "__main__":
     main()
