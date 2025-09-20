@@ -13,6 +13,8 @@ OUT_ICS = "schedule.ics"
 def get_this_monday(d: date):
     return d - timedelta(days=d.weekday())
 
+from openpyxl import load_workbook
+
 def parse_week(start_date: date):
     url = f"{SITE_ROOT}/StudentGroupEvents/ExcelWeek?studentGroupId={GROUP_ID}&weekMonday={start_date:%Y-%m-%d}"
     print("[xlsx url]", url)
@@ -24,28 +26,29 @@ def parse_week(start_date: date):
     with open("tmp.xlsx", "wb") as f:
         f.write(r.content)
 
-    # Читаем Excel как строки, пропускаем 4 строки
-    df = pd.read_excel("tmp.xlsx", header=None, skiprows=4, dtype=str)
-    df = df.fillna('')
+    wb = load_workbook("tmp.xlsx", data_only=True)
+    ws = wb.active
 
     events = []
 
-    for _, row in df.iterrows():
-        dt_raw = row[0].strip()
-        time_raw = row[1].strip()
-        subj = row[2].strip()
-        room = row[3].strip()
+    for row in ws.iter_rows(min_row=5):  # пропускаем первые 4 строки
+        dt_raw = str(row[0].value).strip() if row[0].value else ''
+        time_raw = str(row[1].value).strip() if row[1].value else ''
+        subj = str(row[2].value).strip() if row[2].value else ''
+        room = str(row[3].value).strip() if row[3].value else ''
 
-        # Игнорируем строки-заголовки или пустые
-        if not subj or 'время' in time_raw.lower() or 'дата' in dt_raw.lower():
+        if not dt_raw or not subj or not time_raw:
             continue
 
-        # Конвертация даты
-        dt = pd.to_datetime(dt_raw, dayfirst=True, errors='coerce')
-        if pd.isna(dt):
+        # Парсим дату
+        try:
+            dt = pd.to_datetime(dt_raw, dayfirst=True, errors='coerce')
+            if pd.isna(dt):
+                continue
+        except:
             continue
 
-        # Разбор времени
+        # Парсим время
         if "-" not in time_raw:
             continue
         start_str, end_str = [t.strip() for t in time_raw.split("-")]
@@ -68,7 +71,6 @@ def parse_week(start_date: date):
         print("[event]", subj, start_dt, "-", end_dt)
 
     return events
-
 def make_ics(events):
     lines = [
         "BEGIN:VCALENDAR",
