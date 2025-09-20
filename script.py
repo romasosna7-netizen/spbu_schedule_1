@@ -15,6 +15,8 @@ def get_this_monday(d: date):
 
 from openpyxl import load_workbook
 
+from openpyxl import load_workbook
+
 def parse_week(start_date: date):
     url = f"{SITE_ROOT}/StudentGroupEvents/ExcelWeek?studentGroupId={GROUP_ID}&weekMonday={start_date:%Y-%m-%d}"
     print("[xlsx url]", url)
@@ -41,11 +43,8 @@ def parse_week(start_date: date):
             continue
 
         # Парсим дату
-        try:
-            dt = pd.to_datetime(dt_raw, dayfirst=True, errors='coerce')
-            if pd.isna(dt):
-                continue
-        except:
+        dt = pd.to_datetime(dt_raw, dayfirst=True, errors='coerce')
+        if pd.isna(dt):
             continue
 
         # Парсим время
@@ -71,6 +70,8 @@ def parse_week(start_date: date):
         print("[event]", subj, start_dt, "-", end_dt)
 
     return events
+
+
 def make_ics(events):
     lines = [
         "BEGIN:VCALENDAR",
