@@ -18,21 +18,70 @@ def get_this_monday(d: date):
 
 
 
-def parse_week(start_date: date):
-    url = f"{SITE_ROOT}/StudentGroupEvents/ExcelWeek?studentGroupId={GROUP_ID}&weekMonday={start_date:%Y-%m-%d}"
-    print("[xlsx url]", url)
+def parse_week(xlsx_url, start_date):
+    print(f"=== Обработка недели: {start_date.date()} ===")
+    print(f"[xlsx url] {xlsx_url}")
 
-    r = requests.get(url)
+    # скачиваем Excel
+    r = requests.get(xlsx_url)
     r.raise_for_status()
     with open("tmp.xlsx", "wb") as f:
         f.write(r.content)
 
-    # читаем Excel без заголовков, начиная с 5-й строки
+    # читаем данные, пропускаем 4 строки заголовка
     df = pd.read_excel("tmp.xlsx", header=None, skiprows=4, dtype=str)
     df = df.fillna('')
 
     events = []
 
+    for _, row in df.iterrows():
+        dt_raw = row[0].strip()
+        time_raw = row[1].strip()
+        subj = row[2].strip()
+        room = row[3].strip()
+        teacher = row[4].strip()
+
+        if not subj:
+            continue
+
+        # парсим дату
+        dt_text = clean_date(dt_raw)       # убираем "понедельник" → "29 September"
+        dt_text = f"{dt_text} {start_date.year}"  # добавляем год
+        dt = pd.to_datetime(dt_text, dayfirst=True, errors='coerce')
+        if pd.isna(dt):
+            print("[skip date]", dt_raw)
+            continue
+
+        # парсим время
+        if "-" not in time_raw:
+            continue
+        try:
+            start_str, end_str = [t.strip() for t in time_raw.split("-")]
+            start_time = datetime.strptime(start_str, "%H:%M").time()
+            end_time = datetime.strptime(end_str, "%H:%M").time()
+        except:
+            continue
+
+        start_dt = datetime.combine(dt.date(), start_time)
+        end_dt = datetime.combine(dt.date(), end_time)
+
+        # собираем описание
+        desc_parts = []
+        if room:
+            desc_parts.append(f"Место: {room}")
+        if teacher:
+            desc_parts.append(f"Преподаватель: {teacher}")
+        desc = "\n".join(desc_parts)
+
+        events.append({
+            "summary": subj,
+            "location": room,
+            "description": desc,
+            "dtstart": start_dt,
+            "dtend": end_dt,
+        })
+
+    return events
     # очистка даты от лишнего
     def clean_date(dt_raw: str) -> str:
         import re
